@@ -405,85 +405,93 @@ namespace Slapper
 
                 foreach (var fieldOrProperty in fieldsAndProperties)
                 {
-                    var memberName = fieldOrProperty.Key.ToLower();
+                    var memberNameSingle = fieldOrProperty.Key.ToLower();
+                    var instanceName = instance.GetType().Name.ToLower();
+
+                    var memberNames = new List<string>() {
+                        memberNameSingle,
+                        String.Format("{0}_{1}", instanceName, memberNameSingle) };
 
                     var member = fieldOrProperty.Value;
 
                     object value;
 
                     // Handle populating simple members on the current type
-                    if (dictionary.TryGetValue(memberName, out value))
+                    foreach (var memberName in memberNames)
                     {
-                        SetMemberValue(member, instance, value);
-                    }
-                    else
-                    {
-                        Type memberType = GetMemberType(member);
-
-                        // Handle populating complex members on the current type
-                        if (memberType.IsClass || memberType.IsInterface)
+                        if (dictionary.TryGetValue(memberName, out value))
                         {
-                            // Try to find any keys that start with the current member name
-                            var nestedDictionary = dictionary.Where(x => x.Key.ToLower().StartsWith(memberName + "_")).ToList();
+                            SetMemberValue(member, instance, value);
+                        }
+                        else
+                        {
+                            Type memberType = GetMemberType(member);
 
-                            // If there weren't any keys
-                            if (!nestedDictionary.Any())
+                            // Handle populating complex members on the current type
+                            if (memberType.IsClass || memberType.IsInterface)
                             {
-                                // And the parent instance was not null
-                                if (parentInstance != null)
+                                // Try to find any keys that start with the current member name
+                                var nestedDictionary = dictionary.Where(x => x.Key.ToLower().StartsWith(memberName + "_")).ToList();
+
+                                // If there weren't any keys
+                                if (!nestedDictionary.Any())
                                 {
-                                    // And the parent instance is of the same type as the current member
-                                    if (parentInstance.GetType() == memberType)
+                                    // And the parent instance was not null
+                                    if (parentInstance != null)
                                     {
-                                        // Then this must be a 'parent' to the current type
-                                        SetMemberValue(member, instance, parentInstance);
+                                        // And the parent instance is of the same type as the current member
+                                        if (parentInstance.GetType() == memberType)
+                                        {
+                                            // Then this must be a 'parent' to the current type
+                                            SetMemberValue(member, instance, parentInstance);
+                                        }
+                                    }
+
+                                    continue;
+                                }
+
+                                var newDictionary = nestedDictionary.ToDictionary(pair => pair.Key.ToLower()
+                                                                                              .Replace(memberName + "_", string.Empty), pair => pair.Value,
+                                                                                   StringComparer.OrdinalIgnoreCase);
+
+                                // Try to get the value of the complex member. If the member
+                                // hasn't been initialized, then this will return null.
+                                object nestedInstance = GetMemberValue(member, instance);
+
+                                // If the member is null and is a class, try to create an instance of the type
+                                if (nestedInstance == null && memberType.IsClass)
+                                {
+                                    if (memberType.IsArray)
+                                    {
+                                        nestedInstance = new ArrayList().ToArray(memberType.GetElementType());
+                                    }
+                                    else
+                                    {
+                                        nestedInstance = CreateInstance(memberType);
                                     }
                                 }
 
-                                continue;
-                            }
+                                Type genericCollectionType = typeof(IEnumerable<>);
 
-                            var newDictionary = nestedDictionary.ToDictionary(pair => pair.Key.ToLower()
-                                                                                          .Replace(memberName + "_", string.Empty), pair => pair.Value,
-                                                                               StringComparer.OrdinalIgnoreCase);
-
-                            // Try to get the value of the complex member. If the member
-                            // hasn't been initialized, then this will return null.
-                            object nestedInstance = GetMemberValue(member, instance);
-
-                            // If the member is null and is a class, try to create an instance of the type
-                            if (nestedInstance == null && memberType.IsClass)
-                            {
-                                if (memberType.IsArray)
+                                if (memberType.IsGenericType && genericCollectionType.IsAssignableFrom(memberType.GetGenericTypeDefinition())
+                                     || memberType.GetInterfaces().Any(x => x.IsGenericType && x.GetGenericTypeDefinition() == genericCollectionType))
                                 {
-                                    nestedInstance = new ArrayList().ToArray(memberType.GetElementType());
+                                    var innerType = memberType.GetGenericArguments().FirstOrDefault();
+
+                                    if (innerType == null)
+                                    {
+                                        innerType = memberType.GetElementType();
+                                    }
+
+                                    nestedInstance = MapCollection(innerType, newDictionary, nestedInstance, instance);
                                 }
                                 else
                                 {
-                                    nestedInstance = CreateInstance(memberType);
-                                }
-                            }
-
-                            Type genericCollectionType = typeof(IEnumerable<>);
-
-                            if (memberType.IsGenericType && genericCollectionType.IsAssignableFrom(memberType.GetGenericTypeDefinition())
-                                 || memberType.GetInterfaces().Any(x => x.IsGenericType && x.GetGenericTypeDefinition() == genericCollectionType))
-                            {
-                                var innerType = memberType.GetGenericArguments().FirstOrDefault();
-
-                                if (innerType == null)
-                                {
-                                    innerType = memberType.GetElementType();
+                                    nestedInstance = Map(newDictionary, nestedInstance, instance);
                                 }
 
-                                nestedInstance = MapCollection(innerType, newDictionary, nestedInstance, instance);
+                                SetMemberValue(member, instance, nestedInstance);
                             }
-                            else
-                            {
-                                nestedInstance = Map(newDictionary, nestedInstance, instance);
-                            }
-
-                            SetMemberValue(member, instance, nestedInstance);
                         }
                     }
                 }
