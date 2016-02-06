@@ -51,6 +51,7 @@
     <Compile Include="MappingToEnumTests.cs" />
     <Compile Include="NoIdentifierTests.cs" />
     <Compile Include="NullTests.cs" />
+    <Compile Include="ParentThisMapping.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="CachingBehaviorTests.cs" />
     <Compile Include="ComplexMapTests.cs" />
